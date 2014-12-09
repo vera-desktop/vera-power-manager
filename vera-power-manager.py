@@ -1,0 +1,296 @@
+#!/usr/bin/python3
+# -*- coding: utf-8 -*-
+#
+# vera-power-manager - DBus interface to logind's settings
+# Copyright (C) 2014  Eugenio "g7" Paolantonio
+#
+# This library is free software; you can redistribute it and/or
+# modify it under the terms of the GNU Lesser General Public
+# License as published by the Free Software Foundation; either
+# version 2.1 of the License, or (at your option) any later version.
+#
+# This library is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+# Lesser General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public
+# License along with this library; if not, write to the Free Software
+# Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA  02110-1301  USA
+#
+# Authors:
+#    Eugenio "g7" Paolantonio <me@medesimo.eu>
+#
+
+import sys
+
+import configparser
+
+import subprocess
+
+import dbus
+import dbus.service
+from dbus.mainloop.glib import DBusGMainLoop
+
+from gi.repository import GLib, Polkit
+
+TIMEOUT_LENGTH = 5 * 60
+
+class Service(dbus.service.Object):
+	"""
+	The DBus service.
+	"""
+	
+	properties = {
+		"HandlePowerKey" : ("s", "poweroff"),
+		"HandleLidSwitch" : ("s", "suspend"),
+		"HandleSuspendKey" : ("s", "suspend"),
+		"HandleHibernateKey" : ("s", "hibernate"),
+		"PowerKeyIgnoreInhibited" : ("b", False),
+		"SuspendKeyIgnoreInhibited": ("b", False),
+		"HibernateKeyIgnoreInhibited" : ("b", False),
+		"LidSwitchIgnoreInhibited" : ("b", True),
+		"IdleAction" : ("s", "ignore"),
+		"IdleActionSec" : ("s", "30min")
+	}
+	
+	def outside_timeout(*args, **kwargs):
+		"""
+		Decorator that ensures that the timeout doesn't elapse in the
+		middle of our work.
+		
+		This mess of nested functions is needed because is not possible
+		to use another decorator with @dbus.service.method. [1]
+		We are then manually wrapping our decorator to python3-dbus's.
+		
+		[1] https://www.libreoffice.org/bugzilla/show_bug.cgi?id=22409
+		"""
+				
+		def my_shiny_decorator(func):
+		
+			# Wrap the function around dbus.service.method
+			func = dbus.service.method(*args, **kwargs)(func)
+			
+			def wrapper(self, *args, **kwargs):
+				
+				self.remove_timeout()
+				result = func(self, *args, **kwargs)
+				self.add_timeout()
+				
+				return result
+			
+			# Merge metadata, otherwise the method would not be
+			# introspected
+			wrapper.__name__ = func.__name__
+			wrapper.__dict__.update(func.__dict__)
+			wrapper.__module__ = wrapper.__module__
+			
+			return wrapper
+		
+		return my_shiny_decorator
+	
+	def Set(key):
+		"""
+		Given a key, returns a method that when called will set its value.
+		"""
+		
+		def __set(self, new, user_interaction, sender=None, connection=None):
+			"""
+			Sets the value of the key to "new".
+			
+			Returns True if everything succeeded, False if something
+			went wrong.
+			"""			
+			
+			if None in (sender, connection):
+				# This should not happen, sender and connection are both
+				# required but are auto-populated by dbus' decorators.
+				raise Exception("E: whaaat?")
+			
+			if not self.is_authorized(sender, connection, "org.semplicelinux.vera.powermanager.modify-logind", user_interaction):
+				raise Exception("E: Not authorized")
+
+			try:
+				# Handle booleans
+				if self.properties[key][0] == "b":
+					new = "yes" if new else "no"
+				
+				self.configuration["Login"][key] = new
+				self.save()
+			except:
+				return False
+			
+			return True
+		
+		__set.__name__ = "Set%s" % key
+		return __set
+	
+	def Get(key):
+		"""
+		Given a key, returns a method that when called will return its value.
+		"""
+		
+		def __get(self):
+			"""
+			Returns the value of the given key, or a fallback.
+			"""
+			
+			result = self.configuration.get("Login", key, fallback=self.properties[key][1])
+			
+			# Handle booleans
+			if self.properties[key][0] == "b":
+				result = True if result in ("yes", True) else False
+
+			return result
+		
+		__get.__name__ = "Get%s" % key
+		return __get
+	
+	def on_timeout_elapsed(self):
+		"""
+		Fired when the timeout elapsed.
+		"""
+		
+		self.mainloop.quit()
+		
+		return False
+	
+	def remove_timeout(self):
+		"""
+		Removes the timeout.
+		"""
+
+		if self.timeout > 0:
+			# Timeout already present, cancel it
+			GLib.source_remove(self.timeout)
+	
+	def add_timeout(self):
+		"""
+		Timeout.
+		"""
+		
+		self.timeout = GLib.timeout_add_seconds(TIMEOUT_LENGTH, self.on_timeout_elapsed)
+
+	def __new__(cls):
+		"""
+		Class constructor.
+		
+		This method dynamically generates setters and getters from class' specified
+		properties.
+		"""
+		
+		# Generate setters and getters from cls.properties
+		for prop in cls.properties:
+			setattr(
+				cls,
+				"Set%s" % prop,
+				cls.outside_timeout(
+					"org.semplicelinux.vera.powermanager",
+					in_signature="%sb" % cls.properties[prop][0],
+					out_signature="b",
+					sender_keyword="sender",
+					connection_keyword="connection",
+				)(cls.Set(prop)),
+			)
+			
+			setattr(
+				cls,
+				"Get%s" % prop,
+				cls.outside_timeout(
+					"org.semplicelinux.vera.powermanager",
+					out_signature=cls.properties[prop][0]
+				)(cls.Get(prop)),
+			)
+			
+			if not "org.semplicelinux.vera.powermanager" in cls._dbus_class_table["__main__.Service"]:
+				cls._dbus_class_table["__main__.Service"]["org.semplicelinux.vera.powermanager"] = {}
+			
+			for method in ("Set%s" % prop, "Get%s" % prop):
+				# Update dbus' class table so that when Introspecting the newly
+				# added methods are properly detected
+				cls._dbus_class_table["__main__.Service"]["org.semplicelinux.vera.powermanager"][method] = getattr(cls, method)
+		
+		# Business as usual
+		return super().__new__(cls)
+	
+	def __init__(self):
+		"""
+		Initialization.
+		"""
+		
+		self.timeout = 0
+		
+		self.mainloop = None
+
+		self.configuration = configparser.ConfigParser()
+		self.configuration.optionxform = str # We want case-sensitiveness		
+		self.configuration.read("/etc/systemd/logind.conf")
+		
+		self.bus_name = dbus.service.BusName("org.semplicelinux.vera.powermanager", bus=dbus.SystemBus())
+		
+		self.add_timeout()
+		
+		# Get polkit authority
+		self.authority = Polkit.Authority.get_sync()
+		
+		super().__init__(self.bus_name, "/org/semplicelinux/vera/powermanager")
+	
+	def start_mainloop(self):
+		"""
+		Creates and starts the main loop.
+		"""
+		
+		self.mainloop = GLib.MainLoop()
+		self.mainloop.run()
+	
+	def is_authorized(self, sender, connection, privilege, user_interaction=True):
+		"""
+		Checks if the sender has the given privilege.
+		
+		Returns True if yes, False if not.
+		"""
+		
+		if not user_interaction:
+			flags = Polkit.CheckAuthorizationFlags.NONE
+		else:
+			flags = Polkit.CheckAuthorizationFlags.ALLOW_USER_INTERACTION
+		
+		# Get PID
+		pid = dbus.Interface(
+			dbus.SystemBus().get_object(
+				"org.freedesktop.DBus",
+				"/org/freedesktop/DBus"
+			),
+			"org.freedesktop.DBus"
+		).GetConnectionUnixProcessID(sender)
+		
+		try:
+			result = self.authority.check_authorization_sync(
+				Polkit.UnixProcess.new(pid),
+				privilege,
+				None,
+				flags,
+				None
+			)
+		except:
+			return False
+		
+		return result.get_is_authorized()
+	
+	def save(self):
+		"""
+		Saves the configuration.
+		"""
+		
+		with open("/etc/systemd/logind.conf", "w") as f:
+			self.configuration.write(f)
+		
+		# Reload logind
+		subprocess.Popen(["systemctl", "restart", "systemd-logind.service"])
+
+if __name__ == "__main__":	
+	DBusGMainLoop(set_as_default=True)
+	service = Service()
+	
+	# Ladies and gentlemen...
+	service.start_mainloop()
