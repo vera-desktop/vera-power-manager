@@ -41,18 +41,36 @@ class Service(dbus.service.Object):
 	The DBus service.
 	"""
 	
+	# We can't link methods that still aren't created, so
+	# we use strings to specify the "test"-function that will
+	# validate the value before Set()'s daughter does the job.
+	# This is pretty ugly, but it's better than to move this downside or,
+	# worse, creating another dictionary.
+	# This breakes lambdas, but I'll think about that when I'll actually
+	# need them here ;)
 	properties = {
-		"HandlePowerKey" : ("s", "poweroff"),
-		"HandleLidSwitch" : ("s", "suspend"),
-		"HandleSuspendKey" : ("s", "suspend"),
-		"HandleHibernateKey" : ("s", "hibernate"),
-		"PowerKeyIgnoreInhibited" : ("b", False),
-		"SuspendKeyIgnoreInhibited": ("b", False),
-		"HibernateKeyIgnoreInhibited" : ("b", False),
-		"LidSwitchIgnoreInhibited" : ("b", True),
-		"IdleAction" : ("s", "ignore"),
-		"IdleActionSec" : ("s", "30min")
+		"HandlePowerKey" : ("s", "poweroff", "keys_check"),
+		"HandleLidSwitch" : ("s", "suspend", "keys_check"),
+		"HandleSuspendKey" : ("s", "suspend", "keys_check"),
+		"HandleHibernateKey" : ("s", "hibernate", "keys_check"),
+		"PowerKeyIgnoreInhibited" : ("b", False, None),
+		"SuspendKeyIgnoreInhibited": ("b", False, None),
+		"HibernateKeyIgnoreInhibited" : ("b", False, None),
+		"LidSwitchIgnoreInhibited" : ("b", True, None),
+		"IdleAction" : ("s", "ignore", "keys_check"),
+		"IdleActionSec" : ("s", "30min", None), # FIXME
 	}
+	
+	def keys_check(self, value):
+		"""
+		Returns True if the value is suitable for usage in the
+		Handle*Key/Switch keys.
+		"""
+		
+		return value in (
+			"ignore", "poweroff", "reboot", "halt", "kexec",
+			"suspend", "hibernate", "hybrid-sleep", "lock"
+		)
 	
 	def outside_timeout(*args, **kwargs):
 		"""
@@ -111,6 +129,11 @@ class Service(dbus.service.Object):
 				raise Exception("E: Not authorized")
 
 			try:
+				# Check value
+				if self.properties[key][2] and not getattr(self, self.properties[key][2])(new):
+					# Not a valid value
+					return False
+				
 				# Handle booleans
 				if self.properties[key][0] == "b":
 					new = "yes" if new else "no"
