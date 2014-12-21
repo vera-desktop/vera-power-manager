@@ -46,7 +46,7 @@ class Service(dbus.service.Object):
 	# validate the value before Set()'s daughter does the job.
 	# This is pretty ugly, but it's better than to move this downside or,
 	# worse, creating another dictionary.
-	# This breakes lambdas, but I'll think about that when I'll actually
+	# This breaks lambdas, but I'll think about that when I'll actually
 	# need them here ;)
 	properties = {
 		"HandlePowerKey" : ("s", "poweroff", "keys_check"),
