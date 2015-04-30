@@ -1,3 +1,13 @@
+vera-power-manager (1.0.0-1) unstable; urgency=medium
+
+  * Initial backlight support.
+  * Added acpid rules.
+  * Fire the new BrightnessChanged() signal when the brightness level is increased or decreased.
+  * 1.0.0
+  * debian/control: depend on acpid.
+
+ -- Eugenio Paolantonio (g7) <me@medesimo.eu>  Thu, 30 Apr 2015 16:37:43 +0200
+
 vera-power-manager (0.91-1) unstable; urgency=medium
 
   * setup.cfg: fixup the install-scripts path.
