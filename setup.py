@@ -35,7 +35,8 @@ setup(
 	data_files=[
 		("/etc/dbus-1/system.d", ["data/org.semplicelinux.vera.powermanager.conf"]),
 		("/usr/share/dbus-1/system-services", ["data/org.semplicelinux.vera.powermanager.service"]),
-		("/usr/share/polkit-1/actions", ["data/org.semplicelinux.vera.powermanager.policy"])
+		("/usr/share/polkit-1/actions", ["data/org.semplicelinux.vera.powermanager.policy"]),
+		("/etc/acpi/events", ["acpid/vera-power-manager-brightnessdown", "acpid/vera-power-manager-brightnessup"])
 	],
 	# package_dir={'bin':''},
 	requires=['dbus', 'gi.repository.GLib', 'gi.repository.Polkit', 'gi.repository.Gio', 'time', 'configparser', 'os', 'sys', 'subprocess'],
