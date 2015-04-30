@@ -136,7 +136,17 @@ class Service(dbus.service.Object):
 		"IdleAction" : ("s", "ignore", "keys_check"),
 		"IdleActionSec" : ("s", "30min", None), # FIXME
 	}
+	
+	@dbus.service.signal(
+		"org.semplicelinux.vera.powermanager"
+	)
+	def BrightnessChanged(self):
+		"""
+		Signal emitted when the brightness level has been changed.
+		"""
 		
+		pass
+	
 	def keys_check(self, value):
 		"""
 		Returns True if the value is suitable for usage in the
@@ -276,7 +286,11 @@ class Service(dbus.service.Object):
 		Increases the brightness level.
 		"""
 		
-		if self.backlight: self.backlight.increase()
+		if self.backlight:
+			self.backlight.increase()
+			
+			# Emit signal
+			self.BrightnessChanged()
 	
 	@outside_timeout(
 		"org.semplicelinux.vera.powermanager"
@@ -286,7 +300,11 @@ class Service(dbus.service.Object):
 		Decreases the brightness level.
 		"""
 		
-		if self.backlight: self.backlight.decrease()
+		if self.backlight:
+			self.backlight.decrease()
+			
+			# Emit signal
+			self.BrightnessChanged()
 	
 	@outside_timeout(
 		"org.semplicelinux.vera.powermanager",
