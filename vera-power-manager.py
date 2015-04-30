@@ -24,6 +24,8 @@
 
 import sys
 
+import os
+
 import configparser
 
 import subprocess
@@ -35,6 +37,80 @@ from dbus.mainloop.glib import DBusGMainLoop
 from gi.repository import GLib, Polkit
 
 TIMEOUT_LENGTH = 5 * 60
+
+class Backlight:
+	"""
+	A representation of a Backlight device.
+	"""
+	
+	step = 5
+	
+	def __init__(self, name):
+		"""
+		Initializes the class.
+		"""
+		
+		self.name = name
+		self.path = os.path.join("/sys/class/backlight", self.name)
+		
+		# Save the maximum brightness level
+		with open(os.path.join(self.path, "max_brightness")) as f:
+			self.maximum = int(f.readline().strip())
+		
+	@property
+	def current(self):
+		"""
+		Returns the current brightness level of the device.
+		"""
+		
+		with open(os.path.join(self.path, "brightness")) as f:
+			return int(f.readline().strip())
+	
+	@property
+	def current_percentage(self):
+		"""
+		Returns the current brightness level, in percentage form.
+		"""
+		
+		return int((100*self.current)/self.maximum)
+	
+	def _set(self, new_value):
+		"""
+		Sets the given value as the new brightness
+		"""
+		
+		if new_value > self.maximum:
+			new_value = self.maximum
+		elif new_value < 0:
+			new_value = 0
+		
+		with open(os.path.join(self.path, "brightness"), "w") as f:
+			f.write(str(int(new_value)) + "\n")
+	
+	def set(self, new_value):
+		"""
+		Sets the given value as the new brightness.
+		"""
+		
+		return self._set(
+			int((self.maximum*new_value)/100.0)
+			if not new_value == 100
+			else self.maximum
+		)
+	
+	def increase(self):
+		"""
+		Increases the backlight of self.step%.
+		"""
+		
+		return self.set(self.current_percentage + self.step)
+	
+	def decrease(self):
+		"""
+		Decreases the backlight of self.step%.
+		"""
+		
+		return self.set(self.current_percentage - self.step)
 
 class Service(dbus.service.Object):
 	"""
@@ -60,7 +136,7 @@ class Service(dbus.service.Object):
 		"IdleAction" : ("s", "ignore", "keys_check"),
 		"IdleActionSec" : ("s", "30min", None), # FIXME
 	}
-	
+		
 	def keys_check(self, value):
 		"""
 		Returns True if the value is suitable for usage in the
@@ -169,6 +245,60 @@ class Service(dbus.service.Object):
 		__get.__name__ = "Get%s" % key
 		return __get
 	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager",
+		out_signature="b"
+	)
+	def IsBacklightSupported(self):
+		"""
+		Returns True if vera-power-manager detected a backlight device,
+		False if not.
+		"""
+		
+		return (self.backlight != None)
+	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager",
+		out_signature="i",
+	)
+	def GetCurrentBrightness(self):
+		"""
+		Returns the current brightness level.
+		"""
+		
+		return 100 if not self.backlight else self.backlight.current_percentage
+	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager"
+	)
+	def IncreaseBrightness(self):
+		"""
+		Increases the brightness level.
+		"""
+		
+		if self.backlight: self.backlight.increase()
+	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager"
+	)
+	def DecreaseBrightness(self):
+		"""
+		Decreases the brightness level.
+		"""
+		
+		if self.backlight: self.backlight.decrease()
+	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager",
+		in_signature="i"
+	)
+	def SetBrightness(self, new_value):
+		"""
+		Sets the given brightness level.
+		"""
+		
+		if self.backlight: self.backlight.set(new_value)
+	
 	def on_timeout_elapsed(self):
 		"""
 		Fired when the timeout elapsed.
@@ -255,6 +385,20 @@ class Service(dbus.service.Object):
 		
 		# Get polkit authority
 		self.authority = Polkit.Authority.get_sync()
+		
+		# Backlight devices
+		backlight_devices = os.listdir("/sys/class/backlight")
+		backlight = None
+		# Current we can handle only one
+		if len(backlight_devices) > 1 and "intel_backlight" in backlight_devices:
+			# Pick "intel_backlight"
+			backlight = "intel_backlight"
+		elif len(backlight_devices) > 0:
+			# Pick the first device
+			backlight = backlight_devices[0]
+		
+		# Generate backlight object
+		self.backlight = Backlight(backlight)
 		
 		super().__init__(self.bus_name, "/org/semplicelinux/vera/powermanager")
 	
