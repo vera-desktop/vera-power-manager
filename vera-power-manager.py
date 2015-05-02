@@ -317,6 +317,17 @@ class Service(dbus.service.Object):
 		
 		if self.backlight: self.backlight.set(new_value)
 	
+	@outside_timeout(
+		"org.semplicelinux.vera.powermanager",
+		out_signature="i"
+	)
+	def GetBrightness(self):
+		"""
+		Returns the current brightness level.
+		"""
+		
+		return 100 if not self.backlight else self.backlight.current_percentage
+	
 	def on_timeout_elapsed(self):
 		"""
 		Fired when the timeout elapsed.
