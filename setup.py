@@ -26,7 +26,7 @@ from distutils.core import setup
 
 setup(
 	name='vera-power-manager',
-	version='1.0.1',
+	version='1.0.2',
 	description="DBus interface to logind's settings",
 	author='Eugenio Paolantonio',
 	author_email='me@medesimo.eu',
