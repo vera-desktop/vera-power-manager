@@ -403,6 +403,8 @@ class Service(dbus.service.Object):
 		self.timeout = 0
 		
 		self.mainloop = None
+		
+		self.backlight = None
 
 		self.configuration = configparser.ConfigParser()
 		self.configuration.optionxform = str # We want case-sensitiveness		
@@ -416,18 +418,19 @@ class Service(dbus.service.Object):
 		self.authority = Polkit.Authority.get_sync()
 		
 		# Backlight devices
-		backlight_devices = os.listdir("/sys/class/backlight")
-		backlight = None
-		# Current we can handle only one
-		if len(backlight_devices) > 1 and "intel_backlight" in backlight_devices:
-			# Pick "intel_backlight"
-			backlight = "intel_backlight"
-		elif len(backlight_devices) > 0:
-			# Pick the first device
-			backlight = backlight_devices[0]
-		
-		# Generate backlight object
-		self.backlight = Backlight(backlight)
+		if os.path.exists("/sys/class/backlight"):
+			backlight_devices = os.listdir("/sys/class/backlight")
+			backlight = None
+			# Current we can handle only one
+			if len(backlight_devices) > 1 and "intel_backlight" in backlight_devices:
+				# Pick "intel_backlight"
+				backlight = "intel_backlight"
+			elif len(backlight_devices) > 0:
+				# Pick the first device
+				backlight = backlight_devices[0]
+			
+			# Generate backlight object
+			if backlight: self.backlight = Backlight(backlight)
 		
 		super().__init__(self.bus_name, "/org/semplicelinux/vera/powermanager")
 	
