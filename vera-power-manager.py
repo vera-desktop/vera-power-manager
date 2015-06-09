@@ -44,6 +44,7 @@ class Backlight:
 	"""
 	
 	step = 5
+	useful_minimum_percentage = 1
 	
 	def __init__(self, name):
 		"""
@@ -109,8 +110,12 @@ class Backlight:
 		"""
 		Decreases the backlight of self.step%.
 		"""
-		
-		return self.set(self.current_percentage - self.step)
+
+		return self.set(
+			(self.current_percentage - self.step)
+			if self.current_percentage > self.step + self.useful_minimum_percentage
+			else self.useful_minimum_percentage
+		)
 
 class Service(dbus.service.Object):
 	"""
