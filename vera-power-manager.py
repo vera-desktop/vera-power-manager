@@ -143,9 +143,10 @@ class Service(dbus.service.Object):
 	}
 	
 	@dbus.service.signal(
-		"org.semplicelinux.vera.powermanager"
+		"org.semplicelinux.vera.powermanager",
+		signature="i"
 	)
-	def BrightnessChanged(self):
+	def BrightnessChanged(self, level):
 		"""
 		Signal emitted when the brightness level has been changed.
 		"""
@@ -295,7 +296,7 @@ class Service(dbus.service.Object):
 			self.backlight.increase()
 			
 			# Emit signal
-			self.BrightnessChanged()
+			self.BrightnessChanged(self.backlight.current_percentage)
 	
 	@outside_timeout(
 		"org.semplicelinux.vera.powermanager"
@@ -309,7 +310,7 @@ class Service(dbus.service.Object):
 			self.backlight.decrease()
 			
 			# Emit signal
-			self.BrightnessChanged()
+			self.BrightnessChanged(self.backlight.current_percentage)
 	
 	@outside_timeout(
 		"org.semplicelinux.vera.powermanager",
